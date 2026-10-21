@@ -1,6 +1,6 @@
 // Keeps CORE working offline. Online: always fetches the newest version first.
-const CACHE = 'core-v3';
-const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png', 'core.m4a'];
+const CACHE = 'core-v4';
+const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png', 'core.m4a', 'core-reverse.m4a'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -18,9 +18,9 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
-  // The sound: use the saved copy (it is big and does not change often)
+  // Sounds: use the saved copy (big files that rarely change)
   if (url.pathname.endsWith('.m4a')) {
-    e.respondWith(caches.match('core.m4a').then(r => r || fetch(e.request)));
+    e.respondWith(caches.match(url.href).then(r => r || fetch(e.request)));
     return;
   }
 
@@ -33,6 +33,6 @@ self.addEventListener('fetch', e => {
         }
         return res;
       })
-      .catch(() => caches.match(e.request).then(r => r || caches.match('./')))
+      .catch(() => caches.match(e.request).then(r => r || (e.request.mode === 'navigate' ? caches.match('./') : undefined)))
   );
 });
