@@ -1,5 +1,5 @@
 // Keeps CORE working offline. Online: always fetches the newest version first.
-const CACHE = 'core-v4';
+const CACHE = 'core-v5';
 const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png', 'core.m4a', 'core-reverse.m4a'];
 
 self.addEventListener('install', e => {
