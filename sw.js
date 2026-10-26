@@ -1,9 +1,14 @@
-// Keeps CORE working offline. Online: always fetches the newest version first.
-const CACHE = 'core-v5';
+// Keeps CORE working offline. Online: always asks GitHub for the newest version first.
+const CACHE = 'core-v7';
 const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png', 'core.m4a', 'core-reverse.m4a'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips any old saved copy and downloads fresh files
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
@@ -24,15 +29,21 @@ self.addEventListener('fetch', e => {
     return;
   }
 
+  // Pages and files from this site: always check GitHub for a newer version
+  const sameSite = url.origin === self.location.origin;
+  const req = sameSite ? new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }) : e.request;
+
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then(res => {
+        // A page that moved (e.g. /CORE to /CORE/): let the app follow it normally
+        if (res.redirected && e.request.mode === 'navigate') return Response.redirect(res.url, 302);
         if (res.ok && res.status === 200) {
           const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+          caches.open(CACHE).then(c => c.put(e.request.url, copy)).catch(() => {});
         }
         return res;
       })
-      .catch(() => caches.match(e.request).then(r => r || (e.request.mode === 'navigate' ? caches.match('./') : undefined)))
+      .catch(() => caches.match(e.request.url).then(r => r || (e.request.mode === 'navigate' ? caches.match('./') : undefined)))
   );
 });
