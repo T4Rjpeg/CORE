@@ -1,5 +1,5 @@
 // Keeps CORE working offline. Online: always asks GitHub for the newest version first.
-const CACHE = 'core-v7';
+const CACHE = 'core-v8';
 const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png', 'core.m4a', 'core-reverse.m4a'];
 
 self.addEventListener('install', e => {

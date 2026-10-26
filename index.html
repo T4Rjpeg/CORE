@@ -1154,28 +1154,38 @@ function coreContext(state) {
   return lines.join('\n');
 }
 
-// Returns a promise of reply lines, or rejects with { lines: [...] } to show instead
+// Returns a promise of reply lines, or rejects with { lines: [...] } to show instead.
+// Newer models can "think" before answering, and that thinking counts toward max_tokens.
+// So: ask with thinking off and room to spare; if the model refuses that setting, ask again
+// without it; if the answer still comes back empty because it ran out of room, retry with more.
 function askCore(key, model, state, history) {
   var msgs = history.slice(-12);
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
-  return fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: model || CORE_MODEL_DEFAULT,
-      max_tokens: 220,
-      system: CORE_SYSTEM + '\n\nContext about the user right now (private, for you only):\n' + coreContext(state),
-      messages: msgs
-    })
-  }).then(function (res) {
-    return res.json().catch(function () { return {}; }).then(function (data) {
+  var system = CORE_SYSTEM + '\n\nContext about the user right now (private, for you only):\n' + coreContext(state);
+
+  function call(opts) {
+    var body = { model: model || CORE_MODEL_DEFAULT, max_tokens: opts.max, system: system, messages: msgs };
+    if (opts.noThink) body.thinking = { type: 'disabled' };
+    return fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
+    }, function () { throw { lines: ['no signal.'] }; });
+  }
+
+  function attempt(opts, tries) {
+    return call(opts).then(function (r) {
+      var res = r.res, data = r.data;
       if (!res.ok) {
         var m = (data && data.error && data.error.message || '').toLowerCase();
+        if (res.status === 400 && opts.noThink && m.indexOf('thinking') >= 0) return attempt({ max: 2000, noThink: false }, tries);
         if (res.status === 401) throw { lines: ['wrong key.', 'hold me ten seconds. fix it.'] };
         if (m.indexOf('credit') >= 0) throw { lines: ['no credit left.', 'top up the console.'] };
         if (res.status === 404 || m.indexOf('model') >= 0) throw { lines: ['that model does not answer.', 'check the model name.'] };
@@ -1184,10 +1194,15 @@ function askCore(key, model, state, history) {
       }
       var text = (data.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('\n');
       var lines = text.split('\n').map(function (l) { return l.replace(/^[\s\-–—•*"]+|["\s]+$/g, ''); }).filter(Boolean).slice(0, 6);
-      if (!lines.length) throw { lines: ['...'] };
+      if (!lines.length) {
+        if (tries > 0) return attempt({ max: Math.min(4000, opts.max * 3), noThink: opts.noThink }, tries - 1);
+        throw { lines: ['...', 'say it again.'] };
+      }
       return { lines: lines, raw: lines.join('\n') };
     });
-  }, function () { throw { lines: ['no signal.'] }; });
+  }
+
+  return attempt({ max: 800, noThink: true }, 1);
 }
 
 // ---------- keyboard ----------
